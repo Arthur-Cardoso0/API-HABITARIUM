@@ -29,8 +29,14 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
-// Contexto do banco de dados (EF Core In-Memory)
+// Configuração da conexão com PostgreSQL no Neon
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+
+if (string.IsNullOrWhiteSpace(connectionString))
+{
+    throw new InvalidOperationException(
+        "Connection string DefaultConnection não foi configurada.");
+}
 
 // Autenticação por JWT
 var jwtKey = builder.Configuration["Jwt:Key"]
@@ -53,13 +59,15 @@ builder.Services
             IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey)),
             ValidateLifetime = true,
             ClockSkew = TimeSpan.FromMinutes(1),
-            NameClaimType = "name"
+            NameClaimType = "name",
+            RoleClaimType = "role"
         };
     });
 builder.Services.AddAuthorization();
 
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseNpgsql(connectionString));
+    options.UseNpgsql(connectionString, npgsql =>
+        npgsql.EnableRetryOnFailure()));
 
 var app = builder.Build();
 

@@ -44,6 +44,7 @@ public class MaterialsController : ControllerBase
 
     /// Cadastra um único material no catálogo.
     [HttpPost]
+    [Authorize(Roles = "admin")]
     [ProducesResponseType(StatusCodes.Status201Created, Type = typeof(Material))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<Material>> CreateMaterial([FromBody] Material material)
@@ -60,6 +61,7 @@ public class MaterialsController : ControllerBase
 
     /// Cadastra uma lista de materiais em lote (Batch) no catálogo.
     [HttpPost("batch")]
+    [Authorize(Roles = "admin")]
     [ProducesResponseType(StatusCodes.Status201Created, Type = typeof(IEnumerable<Material>))]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<IEnumerable<Material>>> CreateMaterialsBatch([FromBody] List<Material> materials)
@@ -77,6 +79,7 @@ public class MaterialsController : ControllerBase
 
     /// Remove um único material do catálogo pelo seu identificador único (GUID).
     [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "admin")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> DeleteMaterial(Guid id)
@@ -95,6 +98,7 @@ public class MaterialsController : ControllerBase
 
     /// Remove múltiplos materiais do catálogo em lote (Bulk Delete).
     [HttpDelete("bulk")]
+    [Authorize(Roles = "admin")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]

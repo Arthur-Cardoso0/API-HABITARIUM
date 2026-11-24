@@ -14,12 +14,17 @@ public class TokenService(IConfiguration config)
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
         var expiresAt = DateTime.UtcNow.AddMinutes(config.GetValue<int>("Jwt:ExpiresMinutes", 1440));
 
-        var claims = new[]
+        var adminEmails = (config["Admin:Emails"] ?? "")
+    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        var claims = new List<Claim>
         {
             new Claim("sub", user.Id.ToString()),
             new Claim("email", user.Email),
             new Claim("name", user.Name)
         };
+        if (adminEmails.Contains(user.Email, StringComparer.OrdinalIgnoreCase))
+            claims.Add(new Claim("role", "admin"));
 
         var token = new JwtSecurityToken(
             issuer: config["Jwt:Issuer"],
