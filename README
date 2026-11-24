@@ -1,0 +1,227 @@
+# Habitarium API
+
+API REST do **Habitarium**, aplicativo Android de orçamento de materiais de construção. Ela fornece o catálogo de produtos e a autenticação dos usuários, e é consumida pelo app via Retrofit.
+
+## Sumário
+
+- [Tecnologias](#tecnologias)
+- [Funcionalidades](#funcionalidades)
+- [Pré-requisitos](#pré-requisitos)
+- [Como executar](#como-executar)
+- [Endpoints](#endpoints)
+- [Exemplos de uso](#exemplos-de-uso)
+- [Modelo de dados](#modelo-de-dados)
+- [Estrutura do projeto](#estrutura-do-projeto)
+- [Segurança](#segurança)
+- [Integração com o app Android](#integração-com-o-app-android)
+- [Próximos passos](#próximos-passos)
+- [Autor](#autor)
+
+## Tecnologias
+
+| Tecnologia | Uso |
+|---|---|
+| .NET 10 / ASP.NET Core Web API | Base da aplicação |
+| Entity Framework Core 10 | Acesso a dados e migrações |
+| PostgreSQL + Npgsql | Banco de dados |
+| JWT Bearer | Autenticação |
+| `PasswordHasher` (ASP.NET Core) | Hash de senhas |
+| Swashbuckle (Swagger) | Documentação e testes interativos |
+
+## Funcionalidades
+
+- Catálogo de materiais com busca por nome, marca e empresa feita no app, e cadastro em lote.
+- Cada produto traz empresa, marca, avaliação, estoque, indicação de patrocinado, instalação disponível e especificações técnicas.
+- Cadastro e login de usuários com e-mail e senha.
+- Token JWT com validade de 24 horas.
+- Rotas de escrita do catálogo protegidas por autenticação; leitura pública.
+- Migrações aplicadas automaticamente ao iniciar a API.
+- Swagger com botão **Authorize** para testar as rotas protegidas (somente em desenvolvimento).
+
+## Pré-requisitos
+
+- [.NET SDK 10](https://dotnet.microsoft.com/download)
+- [PostgreSQL](https://www.postgresql.org/download/) em execução
+- Ferramenta do EF Core (opcional, só para criar novas migrações):
+
+```powershell
+dotnet tool install --global dotnet-ef
+```
+
+## Como executar
+
+**1.** Clone o repositório e entre na pasta do projeto (a que contém `Habitarium.Api.csproj`):
+
+```powershell
+git clone <url-do-repositorio>
+cd Habitarium.Api
+```
+
+**2.** Configure os segredos. Eles ficam fora do código, no *user-secrets* do .NET:
+
+```powershell
+dotnet user-secrets init
+
+# Conexão com o PostgreSQL
+dotnet user-secrets set "ConnectionStrings:DefaultConnection" "Host=localhost;Database=HabitariumDb;Username=postgres;Password=SUA_SENHA"
+
+# Chave que assina os tokens JWT (gera 48 bytes aleatórios)
+$b = New-Object byte[] 48
+[Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($b)
+dotnet user-secrets set "Jwt:Key" ([Convert]::ToBase64String($b))
+```
+
+**3.** Execute a API:
+
+```powershell
+dotnet run --launch-profile http
+```
+
+Ao iniciar, a API cria o banco (se o usuário do PostgreSQL tiver permissão) e aplica as migrações. Ela fica disponível em `http://localhost:5240`.
+
+**4.** Abra o Swagger em `http://localhost:5240/swagger`.
+
+### Configurações
+
+| Chave | Descrição | Onde fica |
+|---|---|---|
+| `ConnectionStrings:DefaultConnection` | Conexão com o PostgreSQL | user-secrets |
+| `Jwt:Key` | Chave de assinatura do token (mínimo de 32 caracteres) | user-secrets |
+| `Jwt:Issuer` | Emissor do token | `appsettings.json` |
+| `Jwt:Audience` | Público do token | `appsettings.json` |
+| `Jwt:ExpiresMinutes` | Validade do token em minutos (padrão 1440) | `appsettings.json` |
+
+## Endpoints
+
+Base: `http://localhost:5240/api`
+
+### Autenticação
+
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
+| POST | `/auth/register` | Público | Cria a conta e devolve o token |
+| POST | `/auth/login` | Público | Valida e-mail e senha e devolve o token |
+| GET | `/auth/me` | Autenticado | Devolve os dados do usuário do token |
+
+Regras do cadastro: nome de 2 a 80 caracteres, e-mail válido e senha de 8 a 100 caracteres. E-mail repetido retorna `409`; credenciais inválidas retornam `401`.
+
+### Materiais
+
+| Método | Rota | Acesso | Descrição |
+|---|---|---|---|
+| GET | `/materials` | Público | Lista todos os materiais |
+| GET | `/materials/{id}` | Público | Busca um material pelo GUID |
+| POST | `/materials` | Autenticado | Cadastra um material |
+| POST | `/materials/batch` | Autenticado | Cadastra vários materiais de uma vez |
+| DELETE | `/materials/{id}` | Autenticado | Remove um material |
+| DELETE | `/materials/bulk` | Autenticado | Remove vários materiais (lista de GUIDs) |
+
+## Exemplos de uso
+
+Os exemplos usam PowerShell.
+
+```powershell
+$base = "http://localhost:5240/api"
+
+# Cadastrar um usuário
+Invoke-RestMethod "$base/auth/register" -Method Post -ContentType "application/json" `
+  -Body '{"name":"Maria","email":"maria@exemplo.com","password":"Senha12345"}'
+
+# Entrar e guardar o token
+$r = Invoke-RestMethod "$base/auth/login" -Method Post -ContentType "application/json" `
+  -Body '{"email":"maria@exemplo.com","password":"Senha12345"}'
+$headers = @{ Authorization = "Bearer $($r.token)" }
+
+# Dados do usuário logado
+Invoke-RestMethod "$base/auth/me" -Headers $headers
+
+# Listar o catálogo (público)
+Invoke-RestMethod "$base/materials"
+
+# Carregar produtos em lote a partir de um arquivo JSON (exige token)
+Invoke-RestMethod "$base/materials/batch" -Method Post -ContentType "application/json" `
+  -Headers $headers -InFile ".\materiais.json"
+```
+
+No Swagger, faça o login em `POST /api/auth/login`, copie o valor de `token`, clique em **Authorize** e cole o token sem a palavra `Bearer`.
+
+## Modelo de dados
+
+Exemplo de material:
+
+```json
+{
+  "id": "c1f6d892-3a5e-4c7b-912a-4f51e0672899",
+  "name": "Placa de Gesso Drywall ST Standard 12,5 x 1200 x 1800mm",
+  "category": "Placa Drywall",
+  "price": 42.9,
+  "imageUrl": "https://exemplo.com/imagem.png",
+  "company": "Espaço Smart Goiânia",
+  "brand": "KNAUF",
+  "rating": 4.8,
+  "reviewCount": 154,
+  "stock": 600,
+  "isSponsored": false,
+  "hasOwnInstallation": false,
+  "specs": {
+    "unidadeMedida": "chapa",
+    "codigoProduto": "9999-102",
+    "sistema": "Drywall"
+  }
+}
+```
+
+- `imageUrl` precisa ser um link **direto para a imagem** (terminando em `.jpg`, `.png` ou `.webp`), e não para a página do produto.
+- `specs` é livre: o app monta as linhas da tela de comparação a partir das chaves que existirem.
+
+Tabelas do banco: `Materials` e `AppUsers` (com índice único em `Email`).
+
+## Estrutura do projeto
+
+```
+Habitarium.Api/
+├── Controllers/
+│   ├── AuthController.cs        # cadastro, login e /me
+│   └── MaterialController.cs    # catálogo de materiais
+├── Data/
+│   └── AppDbContext.cs          # contexto do EF Core
+├── Dtos/
+│   └── AuthDtos.cs              # modelos de entrada e saída da autenticação
+├── Migrations/                  # migrações do banco
+├── Models/
+│   ├── AppUser.cs
+│   └── Material.cs
+├── Services/
+│   └── TokenService.cs          # geração do token JWT
+├── Properties/launchSettings.json
+├── appsettings.json
+└── Program.cs                   # configuração dos serviços e do pipeline
+```
+
+## Segurança
+
+- Senhas são guardadas apenas como hash, gerado pelo `PasswordHasher` do ASP.NET Core. A senha em si nunca é armazenada.
+- Cadastro e login respondem com a mesma mensagem para e-mail inexistente e senha errada, para não revelar quais e-mails existem.
+- A chave do JWT e a connection string ficam no *user-secrets* (desenvolvimento) ou em variáveis de ambiente (produção). Nunca as coloque no `appsettings.json` nem no Git.
+- Todo o `MaterialsController` exige autenticação, com exceção das duas rotas de leitura.
+- O Swagger só é habilitado no ambiente de desenvolvimento.
+- Em produção, use sempre HTTPS.
+
+## Integração com o app Android
+
+O app consome esta API com Retrofit e OkHttp. Para rodar o app em um emulador ou em um celular conectado por USB, use o `adb reverse`, que faz o `localhost` do aparelho apontar para o computador:
+
+```powershell
+& "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe" reverse tcp:5240 tcp:5240
+```
+
+Depois disso, o app acessa `http://localhost:5240/api/`. O `adb reverse` é perdido quando o emulador reinicia ou o cabo é desconectado, e então o comando precisa ser repetido.
+
+## Próximos passos
+
+- Publicar a API e o banco na nuvem, com HTTPS.
+- Associar os orçamentos ao usuário logado, guardando-os no servidor.
+
+## Autor
+
+Desenvolvido por **Arthur Cardoso das Dores**.
